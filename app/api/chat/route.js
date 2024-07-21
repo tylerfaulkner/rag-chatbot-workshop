@@ -29,65 +29,76 @@ export async function POST(req) {
 
   console.log(optimizedQueries);
 
-  if (optimizedQueries.object.query !== null) {
+  if (optimizedQueries.object.query === null) {
+    return GenerateResponse(messages, systemMessage);
+  }
+  // TODO - Use embeddings to take advantage of the semantic similarity of the user's message and the knowledge base
 
-    // TODO - Use embeddings to take advantage of the semantic similarity of the user's message and the knowledge base
+  const { embedding } = await embed({
+    model: openai.embedding('text-embedding-3-small'),
+    value: optimizedQueries.object.query,
+  });
 
-    const { embedding } = await embed({
-      model: openai.embedding('text-embedding-3-small'),
-      value: optimizedQueries.object.query,
-    });
+  // TODO - Add the logic to search for the answer or contextual information in the knowledge base with Azure Search
 
-    // TODO - Add the logic to search for the answer or contextual information in the knowledge base with Azure Search
+  console.log(process.env);
 
-    console.log(process.env);
+  const searchClient = new SearchClient(
+    process.env.AZURE_SEARCH_ENDPOINT,
+    process.env.AZURE_SEARCH_INDEX,
+    new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY),
+  );
 
-    const searchClient = new SearchClient(
-      process.env.AZURE_SEARCH_ENDPOINT,
-      process.env.AZURE_SEARCH_INDEX,
-      new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY),
-    );
-
-    let searchOptions = {
-      select: ['id', 'url', 'content'],
-      top: 5,
-      // vectorSearchOptions: {
-      //   queries: [
-      //     {
-      //       kind: "vector",
-      //       vector: embedding,
-      //       kNearestNeighborsCount: 50,
-      //       fields: ['vector']
-      //     }
-      //   ]
-      // }
-    }
-
-    const searchResults = await searchClient.search(optimizedQueries.query, searchOptions);
-
-    // TODO - Insert a system message with the answer or contextual information found in the knowledge base
-
-    systemMessage += `The following are the search results from the knowledge base. Please use this information to inform your answer. All responses should contain the link to the source document using Markdown.
-    ---
-    `;
-
-    for await (const result of searchResults.results) {
-      systemMessage += `
-      Title: ${result.document.id}
-      URL: ${result.document.url}
-      Content: ${result.document.content}
-      
-      `;
-    };
-
-    // Todo - Truncate the system message to the maximum token limit
-    systemMessage = systemMessage.slice(0, MAX_TOKENS);
+  let searchOptions = {
+    select: ['id', 'url', 'content'],
+    top: 5,
+    // vectorSearchOptions: {
+    //   queries: [
+    //     {
+    //       kind: "vector",
+    //       vector: embedding,
+    //       kNearestNeighborsCount: 50,
+    //       fields: ['vector']
+    //     }
+    //   ]
+    // }
   }
 
+  const searchResults = await searchClient.search(optimizedQueries.query, searchOptions);
+
+  // TODO - Insert a system message with the answer or contextual information found in the knowledge base
+
+  systemMessage += `The following are the search results from the knowledge base. Please use this information to inform your answer. All responses should contain the link to the source document using Markdown.
+  ---
+  `;
+
+  for await (const result of searchResults.results) {
+    systemMessage += `
+    Title: ${result.document.id}
+    URL: ${result.document.url}
+    Content: ${result.document.content}
+    
+    `;
+  };
+
+  // Todo - Truncate the system message to the maximum token limit
+  systemMessage = systemMessage.slice(0, MAX_TOKENS);
+  
+
+  return GenerateResponse(messages, systemMessage);
+}
+
+/**
+ * This function generates a streaming response to the user's message.
+ * @param {import('ai').CoreMessage[]} messages the previous messages in the conversation
+ * @param {string} systemMessage the system message to provide context to the AI
+ * @returns a streaming response object
+ */
+async function GenerateResponse(messages, systemMessage = 'You are a helpful assistant.') {
   const result = await streamText({
-    model: openai('gpt-4o'),
-    system: systemMessage,
-    messages,
+      model: openai('gpt-4o'),
+      system: systemMessage,
+      messages,
   });
 
   return result.toAIStreamResponse();
