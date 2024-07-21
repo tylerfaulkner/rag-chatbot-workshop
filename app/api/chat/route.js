@@ -16,75 +16,22 @@ export async function POST(req) {
 
   // TODO - Use prompt chaining to convert the user's message to an optimized search query
 
-  const optimizedQueries = await generateObject({
-    model: openai('gpt-4o-mini'),
-    schema: z.object({
-      query : z.nullable(z.string())
-    }),
-    prompt: `Optimize the user's message to a search query for vector search. The first item in the queries array should be the most optimized search query.
-    If the user's message does not require searching a knowledge base, return null.
-    ---
-    The user's message is: ${messages[messages.length - 1].content}`,
-  });
+  const userMessage = messages[messages.length - 1].content;
 
-  console.log(optimizedQueries);
+ const optimizedQuery = await PerformSearchOptimizationChainStep(userMessage);
 
-  if (optimizedQueries.object.query === null) {
+  if (optimizedQuery === null) {
     return GenerateResponse(messages, systemMessage);
   }
-  // TODO - Use embeddings to take advantage of the semantic similarity of the user's message and the knowledge base
 
-  const { embedding } = await embed({
-    model: openai.embedding('text-embedding-3-small'),
-    value: optimizedQueries.object.query,
-  });
+  const embedding = await CreateEmbedding(optimizedQuery);
 
-  // TODO - Add the logic to search for the answer or contextual information in the knowledge base with Azure Search
+  const searchResultsSystemPrompt = await GetRetrievalSystemPrompt(optimizedQuery, embedding);
 
-  console.log(process.env);
+  systemMessage += searchResultsSystemPrompt;
 
-  const searchClient = new SearchClient(
-    process.env.AZURE_SEARCH_ENDPOINT,
-    process.env.AZURE_SEARCH_INDEX,
-    new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY),
-  );
-
-  let searchOptions = {
-    select: ['id', 'url', 'content'],
-    top: 5,
-    // vectorSearchOptions: {
-    //   queries: [
-    //     {
-    //       kind: "vector",
-    //       vector: embedding,
-    //       kNearestNeighborsCount: 50,
-    //       fields: ['vector']
-    //     }
-    //   ]
-    // }
-  }
-
-  const searchResults = await searchClient.search(optimizedQueries.query, searchOptions);
-
-  // TODO - Insert a system message with the answer or contextual information found in the knowledge base
-
-  systemMessage += `The following are the search results from the knowledge base. Please use this information to inform your answer. All responses should contain the link to the source document using Markdown.
-  ---
-  `;
-
-  for await (const result of searchResults.results) {
-    systemMessage += `
-    Title: ${result.document.id}
-    URL: ${result.document.url}
-    Content: ${result.document.content}
-    
-    `;
-  };
-
-  // Todo - Truncate the system message to the maximum token limit
   systemMessage = systemMessage.slice(0, MAX_TOKENS);
   
-
   return GenerateResponse(messages, systemMessage);
 }
 
@@ -102,4 +49,104 @@ async function GenerateResponse(messages, systemMessage = 'You are a helpful ass
   });
 
   return result.toAIStreamResponse();
+}
+
+/**
+ * Returns the embedding for the provided text
+ * @param {string} value the text to embed 
+ * @returns {import('ai').EmbeddingModelV1Embedding} the embedding for the provided text
+ */
+async function CreateEmbedding(value) {
+  const { embedding } = await embed({
+    model: openai.embedding('text-embedding-3-small'),
+    value,
+  });
+
+  return embedding;
+}
+
+/**
+ * Searches the knowledge base for the answer to the user's questions and returns a system message with the results
+ * @param {import('ai').CoreMessage[]} the previous messages in the conversation
+ * @param {import('ai').EmbeddingModelV1Embedding} embedding the embedding for the user's message
+ * @returns {string} the system message with the search results
+ */
+async function GetRetrievalSystemPrompt(userQuery, embedding = null) {
+  const azureSearchIndexName = process.env.AZURE_SEARCH_INDEX;
+  const azureSearchApiKey = process.env.AZURE_SEARCH_API_KEY;
+  const azureSearchEndpoint = process.env.AZURE_SEARCH_ENDPOINT;
+
+  // TODO - Implement the Search Logic
+  const searchClient = new SearchClient(
+    process.env.AZURE_SEARCH_ENDPOINT,
+    process.env.AZURE_SEARCH_INDEX,
+    new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY),
+  );
+
+  let searchOptions = {
+    select: ['id', 'url', 'content'],
+    top: 5,
+  }
+
+  if (embedding) {
+    searchOptions.vectorSearchOptions = {
+      queries: [
+        {
+          kind: "vector",
+          vector: embedding,
+          kNearestNeighborsCount: 50,
+          fields: ['vector']
+        }
+      ]
+    }
+  }
+
+  const searchResults = await searchClient.search(userQuery, searchOptions);
+
+
+  const systemPrompt = await BuildSearchResultsSystemPrompt(searchResults.results);
+
+  return systemPrompt;
+}
+
+/**
+ * Generates a system message from the search results
+ * @param {import('@azure/search-documents').SearchIterator} results 
+ * @returns {string} the system message with the search results
+ */
+async function BuildSearchResultsSystemPrompt(results) {
+  let systemMessage = `The following are the search results from the knowledge base. Please use this information to inform your answer. All responses should contain the link to the source document using Markdown.
+  ---
+  `;
+
+  for await (const result of searchResults.results) {
+    systemMessage += `
+    Title: ${result.document.id}
+    URL: ${result.document.url}
+    Content: ${result.document.content}
+    
+    `;
+  };
+
+  return systemMessage;
+}
+
+/**
+ * Performs the query optimization chain step to optimize the user's message to a search query for vector search
+ * @param {string} userMessage the user's message to optimize 
+ * @returns {string | null} the optimized search query or null if the user's message does not require searching a knowledge base
+ */
+async function PerformSearchOptimizationChainStep(userMessage) {
+  const optimizedQueries = await generateObject({
+    model: openai('gpt-4o-mini'),
+    schema: z.object({
+      query : z.nullable(z.string())
+    }),
+    prompt: `Optimize the user's message to a search query for vector search. The first item in the queries array should be the most optimized search query.
+    If the user's message does not require searching a knowledge base, return null.
+    ---
+    The user's message is: ${userMessage}`,
+  });
+
+  return optimizedQueries.object.query;
 }
