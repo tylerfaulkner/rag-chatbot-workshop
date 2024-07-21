@@ -44,19 +44,20 @@
   --card-border-rgb: 131, 134, 135;
 }
 
-.noise{
-  background: rgb(182, 34, 58);
-  background-image: url(/assets/noise.png);
-}
+
 
 .blob {
   background: radial-gradient(circle at center, grey 20%, transparent 90% ) !important;
 }
 
 .blur {
-  background-image: url(/assets/noise.png);
+  background-image: url(/noise-light.png);
 }
 
 .background {
   z-index: -100;
+}
+
+body {
+  height: 100vh;
 }
