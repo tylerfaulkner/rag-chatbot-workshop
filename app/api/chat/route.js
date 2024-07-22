@@ -14,8 +14,6 @@ export async function POST(req) {
   const { messages } = await req.json();
   let systemMessage = `You are a helpful assistant. You will be provided documents from a knowledge base to inform your answers.`;
 
-  // TODO - Use prompt chaining to convert the user's message to an optimized search query
-
   const userMessage = messages[messages.length - 1].content;
 
  const optimizedQuery = await PerformSearchOptimizationChainStep(userMessage);
