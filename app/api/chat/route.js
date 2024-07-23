@@ -12,7 +12,7 @@ const MAX_TOKENS = 29000;
 
 export async function POST(req) {
   const { messages } = await req.json();
-  let systemMessage = `You are a helpful assistant. You will be provided documents from a knowledge base to inform your answers.`;
+  let systemMessage = `You are a helpful assistant. You will be provided documents from a knowledge base to inform your answers. Use markdown to format your responses.`;
 
   const userMessage = messages[messages.length - 1].content;
 
@@ -82,7 +82,7 @@ async function GetRetrievalSystemPrompt(userQuery, embedding = null) {
   );
 
   let searchOptions = {
-    select: ['id', 'url', 'content'],
+    select: ['title', 'chunk'],
     top: 5,
   }
 
@@ -113,15 +113,14 @@ async function GetRetrievalSystemPrompt(userQuery, embedding = null) {
  * @returns {string} the system message with the search results
  */
 async function BuildSearchResultsSystemPrompt(results) {
-  let systemMessage = `The following are the search results from the knowledge base. Please use this information to inform your answer. All responses should contain the link to the source document using Markdown.
+  let systemMessage = `The following are the search results from the knowledge base. Please use this information to inform your answer.
   ---
   `;
 
-  for await (const result of searchResults.results) {
+  for await (const result of results) {
     systemMessage += `
-    Title: ${result.document.id}
-    URL: ${result.document.url}
-    Content: ${result.document.content}
+    Title: ${result.document.title}
+    Content: ${result.document.chunk}
     
     `;
   };
