@@ -40,7 +40,13 @@ export async function POST(req) {
  * @returns a streaming response object
  */
 async function GenerateResponse(messages, systemMessage = 'You are a helpful assistant.') {
-  throw new Error('The chat response function has not been implemented yet.');
+  const result = await streamText({
+      model: openai('gpt-4o'),
+      system: systemMessage,
+      messages,
+  });
+
+  return result.toAIStreamResponse();
 }
 
 /**
@@ -49,8 +55,12 @@ async function GenerateResponse(messages, systemMessage = 'You are a helpful ass
  * @returns {import('ai').EmbeddingModelV1Embedding} the embedding for the provided text
  */
 async function CreateEmbedding(value) {
-  //TODO - Implement the logic to create an embedding for the provided text
-  return null;
+  const { embedding } = await embed({
+    model: openai.embedding('text-embedding-3-small'),
+    value,
+  });
+
+  return embedding;
 }
 
 /**
@@ -60,9 +70,39 @@ async function CreateEmbedding(value) {
  * @returns {string} the system message with the search results
  */
 async function GetRetrievalSystemPrompt(userQuery, embedding = null) {
-  // TODO - Implement the Search Logic
+  const azureSearchIndexName = process.env.AZURE_SEARCH_INDEX;
+  const azureSearchApiKey = process.env.AZURE_SEARCH_API_KEY;
+  const azureSearchEndpoint = process.env.AZURE_SEARCH_ENDPOINT;
 
-  const systemPrompt = '';
+  // TODO - Implement the Search Logic
+  const searchClient = new SearchClient(
+    process.env.AZURE_SEARCH_ENDPOINT,
+    process.env.AZURE_SEARCH_INDEX,
+    new AzureKeyCredential(process.env.AZURE_SEARCH_API_KEY),
+  );
+
+  let searchOptions = {
+    select: ['title', 'chunk'],
+    top: 5,
+  }
+
+  if (embedding) {
+    searchOptions.vectorSearchOptions = {
+      queries: [
+        {
+          kind: "vector",
+          vector: embedding,
+          kNearestNeighborsCount: 50,
+          fields: ['vector']
+        }
+      ]
+    }
+  }
+
+  const searchResults = await searchClient.search(userQuery, searchOptions);
+
+
+  const systemPrompt = await BuildSearchResultsSystemPrompt(searchResults.results);
 
   return systemPrompt;
 }
@@ -73,10 +113,18 @@ async function GetRetrievalSystemPrompt(userQuery, embedding = null) {
  * @returns {string} the system message with the search results
  */
 async function BuildSearchResultsSystemPrompt(results) {
-  let systemMessage = '';
+  let systemMessage = `The following are the search results from the knowledge base. Please use this information to inform your answer.
+  ---
+  `;
 
-  // TODO - Implement the Search Results Logic
-  
+  for await (const result of results) {
+    systemMessage += `
+    Title: ${result.document.title}
+    Content: ${result.document.chunk}
+    
+    `;
+  };
+
   return systemMessage;
 }
 
@@ -86,6 +134,16 @@ async function BuildSearchResultsSystemPrompt(results) {
  * @returns {string | null} the optimized search query or null if the user's message does not require searching a knowledge base
  */
 async function PerformSearchOptimizationChainStep(userMessage) {
-  //TODO - Implement the Query Optimization Logic
-  return null;
+  const optimizedQueries = await generateObject({
+    model: openai('gpt-4o-mini'),
+    schema: z.object({
+      query : z.nullable(z.string())
+    }),
+    prompt: `Optimize the user's message to a search query for vector search. The first item in the queries array should be the most optimized search query.
+    If the user's message does not require searching a knowledge base, return null.
+    ---
+    The user's message is: ${userMessage}`,
+  });
+
+  return optimizedQueries.object.query;
 }
