@@ -63,6 +63,26 @@ Verify the installation by running:
 nvm --version
 ```
 
+### Troubleshooting Steps
+
+There appears to be an issues with NVM and administrator privelages.
+
+#### NVM not recognized Recovery Steps
+1. Go to Environment Variables in windows
+  a. search for envrionment variables in windows search
+  b. find option called "Edit the environment variables"
+2. Click on "Environment Variables..." in the bottom right corner
+3. The nvm installer should have setup NVM_HOME and NVM_SYMLINK
+4. Ensures the PATH variable has a reference to this variables
+  a. Double click path
+  b. If you need to add the variables reference
+    i. Add %NVM_HOME% in a new line
+    ii. Add %NVM_SYMLINK% on a seperate line
+
+#### `nvm use --lts` not working
+
+Remove the hyphens from lts and it should run.
+
 ## Step 3: Installing Node.js using NVM
 
 With NVM installed, you can easily install and manage Node.js versions.
